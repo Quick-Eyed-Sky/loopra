@@ -1,0 +1,93 @@
+# Loopra — calm, in layers
+
+**A small ambient instrument for your browser. Choose among 32 sound layers, each repeating at its own length, in one shared key and mode.**
+
+**[⬇️ Download the latest release →](https://github.com/Quick-Eyed-Sky/loopra/releases/latest)** · [First opening on a Mac →](docs/first-opening.md)
+
+Pads and bowed bass make a soft foundation. Glass, felt piano, little ripples, distant calls and long chords find their way through it. Leave a few layers together, or listen to one on its own.
+
+![Loopra: sound controls on the left, 32 individual layers with on/off and headphone buttons on the right](docs/loopra.png)
+
+*Sixteen layers are enabled at first. Every sound is synthesized in the browser.*
+
+No account, samples, model downloads or package installation. The interface is in English.
+
+## Start listening
+
+You need **Python 3** to run the local server and a browser with **Web Audio** support.
+
+**On a Mac:** double-click **Run Loopra.command** in this folder. It prints the local address and opens it in your browser. Keep its Terminal window open while you listen; close it or press **Ctrl+C** to stop the server.
+
+**First opening:** macOS may ask you to confirm before running a downloaded launcher. This is a small free project, distributed as readable scripts and browser files, without an Apple Developer ID signed app. If macOS blocks the launcher, see [the first-opening guide](docs/first-opening.md). After the page opens, click **Start listening** to enable sound.
+
+**On macOS or Linux:** open a terminal in this folder and run:
+
+```sh
+./run.sh
+```
+
+Open the address printed in the terminal. If you already use npm, **`npm run dev`** starts the same local server. There is no `npm install` step, and Node.js is not needed to listen.
+
+The launcher prefers port **4184**. It reuses a server only when it serves the same resolved folder and the same build. If another copy occupies that port, it chooses a free one in **4184–4215** and prints the actual address.
+
+**After updating or unzipping a new copy, run that copy's launcher.** A browser tab already open on an older copy keeps showing that copy; the Mac launcher opens the correct one for you.
+
+Press **Start listening**. Browsers wait for a click before making sound. **Space** plays or pauses when you are not using another control.
+
+## The controls
+
+| Control | What it does |
+| --- | --- |
+| **Number of loops** | Enables 0–32 layers. Individual on/off switches update the number too. |
+| **A layer's name** | Adds that layer to your mix or removes it. |
+| **Headphones / Solo** | Plays that layer alone, with a short immediate audition. Click the same headphone button again to return to your mix. Your on/off choices are preserved, and the other loops keep their place. |
+| **Key** | Chooses one of the 12 root notes. |
+| **Mode** | Aeolian (minor), Ionian (major), Dorian, Lydian, Mixolydian, Phrygian or minor pentatonic. The pitched layers follow the same mode. |
+| **Harmonic complexity** | Moves from open, simple voicings to more softly spaced chord extensions. |
+| **New loop lengths** | Draws new periods for the layers while keeping your chosen sounds. Their meetings change. |
+| **Volume** | Sets the whole instrument's level. |
+
+Some layers leave long silences between phrases. The headphone button lets you hear what one sounds like without waiting for its next entrance, including the automatic Distant calls layer. The small dot shows when a phrase is sounding.
+
+## Keep a setup
+
+Loopra remembers your key, mode, volume, complexity, loop lengths and chosen layers in this browser. **Save setup** downloads them as a small JSON file; **Load setup** restores one, on this machine or another.
+
+A setup restores the controls and periods, rather than recording a performance. It does not capture the exact playback position or every small variation in the sound. Solo is a temporary listening aid; the saved setup keeps your chosen mix.
+
+Browser storage belongs to the address you open. Hosted copies and local copies on different ports have separate settings; use a setup file to carry a mix between them. Clearing website data or closing a private browsing session can remove stored settings.
+
+## A few limits
+
+- This is a live synthesis instrument. It does not import, analyze or slice audio, and it does not record or export an audio file.
+- The musical phrases are composed in the code; independent loop lengths change how they overlap. Choosing new lengths does not write new melodies.
+- Browser or operating-system audio interruptions can pause playback. Reloading or closing the page stops it.
+- Tests check scheduling and state, but the character and balance of a mix are things to judge by listening.
+
+## How it is made
+
+Plain HTML, CSS and JavaScript, with Web Audio oscillators, envelopes, filters, delay and reverb. Each layer has its own period and scheduled phrase. No build step or runtime dependency is needed.
+
+All synthesis happens in your browser. Settings stay in local storage unless you choose to save a JSON file. There are no analytics, remote fonts, external audio services or model calls.
+
+The complete website is in **`dist/`**. It can be served by any static web host. The Python server only delivers those files; it does not process sound. See [PUBLISHING.md](PUBLISHING.md) for the prepared publication notes.
+
+For syntax and scheduler tests, with Node.js 20 or later:
+
+```sh
+npm run check
+npm test
+python3 -m unittest discover -s tests -p 'test_*.py'
+```
+
+The tests use a simulated audio clock and graph; they do not replace listening in a browser.
+
+## Who made this
+
+Jean-Pascal — **[Quick-Eyed Sky](https://www.youtube.com/@QuickEyedSky)** on YouTube, **[QES](https://huggingface.co/QES)** on Hugging Face. Not a programmer: this exists for the pleasure of hearing small sounds meet in unexpected ways.
+
+If it gives you a quiet afternoon, you can **[buy me a coffee](https://buymeacoffee.com/oFJ5CiY7n)**. Entirely optional, and Loopra stays exactly as free either way.
+
+## License
+
+MIT — see [LICENSE](LICENSE). You can use, modify and share it under those terms.
