@@ -1,14 +1,22 @@
-import { LoopraAudio, LOOP_COUNT } from './audio.js?v=2';
+import { LoopraAudio, LOOP_COUNT } from './audio.js?v=3';
 
-const audio = new LoopraAudio();
+const storageKey = 'loopra.stage.setup.v1';
+let initialSeed = (Math.random() * 4294967296) >>> 0;
+try {
+  const saved = JSON.parse(localStorage.getItem(storageKey));
+  if (Number.isInteger(saved?.seed) && saved.seed >= 0) initialSeed = saved.seed >>> 0;
+} catch { /* A new place is drawn. */ }
+const audio = new LoopraAudio({ seed: initialSeed, features: { stage: true, timbre: true, variation: true } });
 const $ = (id) => document.getElementById(id);
-const storageKey = 'loopra.setup.v1';
+const STAGE_SLIDERS = ['Amount', 'Walk', 'Size', 'Variation', 'Pad'];
 const catalogue = audio.getLoopState();
 const keys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 const modes = ['aeolian', 'ionian', 'dorian', 'lydian', 'mixolydian', 'phrygian', 'pentatonic'];
 const ids = catalogue.map((loop) => loop.id);
 let selection = ids.slice(0, 16);
-let settings = { key: 'D', mode: 'aeolian', complexity: 45, volume: 50 };
+let settings = { key: 'D', mode: 'aeolian', complexity: 45, volume: 50, stage: { amount: 100, walk: 40, size: 50, variation: 50, pad: 70, listening: 'headphones', timbre: 'rich' } };
+// The harmonic pad is the foundation: it has a level of its own, and every other layer is simply on or off.
+const levelOf = (id, index) => (selection.includes(id) ? (index === 0 ? settings.stage.pad / 100 : 1) : 0);
 let toastTimer, saveTimer;
 let busy = false;
 let elapsed = 0;
@@ -32,6 +40,7 @@ function setupSnapshot() {
   return {
     format: 'loopra-setup', version: 1,
     ...settings,
+    seed: audio.seed,
     enabled: [...selection],
     durations: audio.getLoopState().map((loop) => loop.duration),
   };
@@ -45,6 +54,11 @@ function persist() {
   }, 180);
 }
 
+const validStage = (stage) => stage && typeof stage === 'object'
+  && ['amount', 'walk', 'size', 'variation', 'pad'].every((name) => stage[name] === undefined || (Number.isFinite(stage[name]) && stage[name] >= 0 && stage[name] <= 100))
+  && (stage.listening === undefined || ['headphones', 'speakers'].includes(stage.listening))
+  && (stage.timbre === undefined || ['rich', 'classic'].includes(stage.timbre));
+
 function validateSetup(value) {
   if (!value || value.format !== 'loopra-setup' || value.version !== 1
     || !keys.includes(value.key) || !modes.includes(value.mode)
@@ -54,7 +68,9 @@ function validateSetup(value) {
     || value.enabled.some((id) => !ids.includes(id))
     || new Set(value.enabled).size !== value.enabled.length
     || !Array.isArray(value.durations) || value.durations.length !== LOOP_COUNT
-    || value.durations.some((duration) => !Number.isFinite(duration) || duration < 1 || duration > 600)) {
+    || value.durations.some((duration) => !Number.isFinite(duration) || duration < 1 || duration > 600)
+    || (value.stage !== undefined && !validStage(value.stage))
+    || (value.seed !== undefined && !(Number.isInteger(value.seed) && value.seed >= 0 && value.seed <= 4294967295))) {
     throw new Error('This is not a valid Loopra setup. Choose a file saved by Loopra.');
   }
   return value;
@@ -62,14 +78,16 @@ function validateSetup(value) {
 
 function applySetup(value) {
   audio.setSoloLoop(null);
-  settings = { key: value.key, mode: value.mode, complexity: value.complexity, volume: value.volume };
+  settings = { key: value.key, mode: value.mode, complexity: value.complexity, volume: value.volume, stage: { ...settings.stage, ...(value.stage || {}) } };
+  if (Number.isInteger(value.seed)) audio.setSeed(value.seed);
+  applyStage();
   selection = [...value.enabled];
   audio.setKey(settings.key);
   audio.setMusicalMode(settings.mode);
   audio.setHarmonyComplexity(settings.complexity / 100);
   audio.setVolume(settings.volume * 0.0064);
   audio.setLoopDurations(value.durations);
-  catalogue.forEach((loop, index) => audio.setLoopLevel(index, selection.includes(loop.id) ? 1 : 0));
+  catalogue.forEach((loop, index) => audio.setLoopLevel(index, levelOf(loop.id, index)));
 }
 
 try {
@@ -78,6 +96,7 @@ try {
 } catch { /* Invalid or old stored settings fall back to the original score. */ }
 audio.setHarmonyComplexity(settings.complexity / 100);
 audio.setVolume(settings.volume * 0.0064);
+applyStage();
 
 const cards = catalogue.map((loop, index) => {
   const card = document.createElement('div');
@@ -86,12 +105,12 @@ const cards = catalogue.map((loop, index) => {
   button.className = 'loop-toggle';
   button.type = 'button';
   button.title = loop.description || loop.name;
-  button.innerHTML = '<span class="reel" aria-hidden="true"><i></i></span><span class="loop-copy"><strong class="loop-name"></strong><span class="loop-bottom"><span class="loop-track"><i></i></span><span class="loop-duration"></span></span></span><i class="sound-dot" aria-hidden="true"></i>';
+  button.innerHTML = '<span class="reel" aria-hidden="true"><i></i></span><span class="loop-copy"><strong class="loop-name"></strong><span class="loop-bottom"><span class="loop-track"><i></i></span><span class="loop-duration"></span><span class="plane-tag"></span></span></span><i class="sound-dot" aria-hidden="true"></i>';
   button.querySelector('.loop-name').textContent = loop.name;
   button.addEventListener('click', () => {
     audio.setSoloLoop(null);
     selection = selection.includes(loop.id) ? selection.filter((id) => id !== loop.id) : [...selection, loop.id];
-    audio.setLoopLevel(index, selection.includes(loop.id) ? 1 : 0);
+    audio.setLoopLevel(index, levelOf(loop.id, index));
     render();
     persist();
   });
@@ -110,7 +129,10 @@ const cards = catalogue.map((loop, index) => {
     finally { render(); }
   });
   card.append(button, solo);
-  $('loopList').append(card);
+  if (index === 0) {
+    card.classList.add('foundation-card');
+    $('foundation').prepend(card);
+  } else $('loopList').append(card);
   return { card, button, solo };
 });
 
@@ -128,6 +150,13 @@ function render() {
   $('complexityValue').value = settings.complexity;
   $('volume').value = settings.volume;
   $('volumeValue').value = settings.volume;
+  for (const name of STAGE_SLIDERS) {
+    $(`stage${name}`).value = settings.stage[name.toLowerCase()];
+    $(`stage${name}Value`).value = settings.stage[name.toLowerCase()];
+  }
+  $('stageListening').value = settings.stage.listening;
+  $('stageTimbre').value = settings.stage.timbre;
+  $('stageReadout').textContent = settings.stage.amount === 0 ? 'FLAT' : 'STAGED';
   $('keyReadout').textContent = `${settings.key} ${settings.mode === 'aeolian' ? 'MINOR' : settings.mode === 'ionian' ? 'MAJOR' : settings.mode.toUpperCase()}`;
   document.querySelectorAll('input[type="range"]').forEach(paintRange);
   const soloIndex = audio.soloLoopIndex;
@@ -163,6 +192,7 @@ function updateLoops() {
     card.classList.toggle('solo-silenced', audio.soloLoopIndex !== null && !soloed);
     card.style.setProperty('--phase', `${100 * loop.position / loop.duration}%`);
     card.querySelector('.loop-duration').textContent = time(loop.duration);
+    card.querySelector('.plane-tag').textContent = loop.plane;
   });
 }
 
@@ -192,7 +222,7 @@ function setCount(count) {
     if (selection.length >= count) break;
     if (!selection.includes(id)) selection.push(id);
   }
-  catalogue.forEach((loop, index) => audio.setLoopLevel(index, selection.includes(loop.id) ? 1 : 0));
+  catalogue.forEach((loop, index) => audio.setLoopLevel(index, levelOf(loop.id, index)));
   render();
   persist();
 }
@@ -225,13 +255,27 @@ $('renew').addEventListener('click', () => {
   notify('New lengths. New encounters. Your chosen layers stay.');
 });
 
+function applyStage() {
+  const s = settings.stage;
+  audio.setStage({ amount: s.amount / 100, walk: s.walk / 100, size: s.size / 100, variation: s.variation / 100, listening: s.listening, timbre: s.timbre === 'rich' });
+  audio.setLoopLevel(0, levelOf(ids[0], 0));
+}
+for (const name of STAGE_SLIDERS) {
+  $(`stage${name}`).addEventListener('input', (event) => {
+    settings.stage[name.toLowerCase()] = Number(event.target.value);
+    applyStage(); render(); persist();
+  });
+}
+$('stageListening').addEventListener('change', (event) => { settings.stage.listening = event.target.value; applyStage(); render(); persist(); });
+$('stageTimbre').addEventListener('change', (event) => { settings.stage.timbre = event.target.value; applyStage(); render(); persist(); });
+
 $('returnToMix').addEventListener('click', () => { audio.setSoloLoop(null); render(); });
 
 $('saveSetup').addEventListener('click', () => {
   const blob = new Blob([`${JSON.stringify(setupSnapshot(), null, 2)}\n`], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
-  link.href = url; link.download = 'loopra-setup.json'; link.click();
+  link.href = url; link.download = 'loopra-stage-setup.json'; link.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
   notify('Setup saved. Load it here or share it with another listener.');
 });
@@ -273,5 +317,7 @@ function animate(now) {
   }
   requestAnimationFrame(animate);
 }
+if (new URLSearchParams(location.search).has('debug')) window.__loopra = { audio, get settings() { return settings; }, get selection() { return selection; } };
+$('seedValue').textContent = audio.seed;
 render();
 requestAnimationFrame(animate);

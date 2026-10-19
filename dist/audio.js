@@ -2,6 +2,10 @@
 // Event times are anchored to each tape's own period: no common chord clock,
 // no accumulated interval drift, and no hundreds-of-seconds audio buffers.
 
+import { hashSeed, mulberry32, unit } from './rng.js';
+import { LANE_DEPTH, SpaceRack, planeFor } from './space.js';
+import { HAMMER, TIMBRES } from './timbre.js';
+
 const KEYS = { C: 36, 'C#': 37, D: 38, 'D#': 39, E: 40, F: 41, 'F#': 42, G: 31, 'G#': 32, A: 33, 'A#': 34, B: 35 };
 
 const MODES = {
@@ -50,6 +54,11 @@ const TAPES = [
   { id: 'bassbell', name: 'Low lantern', description: 'A deep, cushioned bell bloom with a gentle long tail.', reference: 211, range: [137, 283], early: 43, minimum: 35, trim: 0.5 },
   { id: 'afterglow', name: 'Afterglow', description: 'A final slow chord rises and recedes like a warm afterimage.', reference: 257, range: [173, 299], early: 67, minimum: 35, trim: 0.5 },
 ];
+
+// In Stage a few layers start quieter than in 0.1.1. Silk & light is a sustained veil: each of its
+// chords lasts longer than its loop, so it is almost always sounding, and its notes sit around 1 kHz,
+// where the other layers have little energy. At full level it pierces through everything else.
+const STAGE_TRIM = { silk: 0.12 };
 
 export const LOOP_COUNT = TAPES.length;
 const gcd = (a, b) => b ? gcd(b, a % b) : a;
@@ -169,8 +178,15 @@ const MOTION = {
 };
 
 export class LoopraAudio extends EventTarget {
-  constructor() {
+  // options.features switches the Stage additions on one by one (all off = Loopra 0.1.1).
+  constructor(options = {}) {
     super();
+    this._seed = (Number.isInteger(options.seed) ? options.seed : 1) >>> 0;
+    this._features = { stage: false, timbre: false, variation: false, ...(options.features || {}) };
+    this._stage = { amount: 1, walk: 0.4, size: 0.5, variation: 0.5, listening: 'headphones', ...(options.stage || {}) };
+    this._rack = null;
+    this._rackNext = 0;
+    this._whiteNoise = null;
     this.playing = false;
     this.sourceName = 'Loopra composition';
     this.isFile = false;
@@ -195,10 +211,11 @@ export class LoopraAudio extends EventTarget {
     const periods = tapePeriods();
     this._tapes = TAPES.map((tape, index) => ({
       ...tape,
-      trim: tape.trim ?? 1,
+      trim: this._features.stage && STAGE_TRIM[tape.id] !== undefined ? STAGE_TRIM[tape.id] : (tape.trim ?? 1),
       duration: periods[index],
       phase: tape.early ? periods[index] - tape.early : periods[index] * tape.phaseRatio,
-      level: index < 16 ? 1 : 0, scheduled: new Map(), gain: null,
+      // In Stage the harmonic pad, the foundation, starts at 70 % so that it does not mask the others.
+      level: index === 0 && this._features.stage ? 0.7 : index < 16 ? 1 : 0, scheduled: new Map(), gain: null,
     }));
     this._motifs = makeMotifs(KEYS[this._key], this._tapes, this._musicalMode);
     this._levels = { bass: 0, mid: 0, high: 0, energy: 0 };
@@ -258,24 +275,25 @@ export class LoopraAudio extends EventTarget {
     for (const [index, tape] of this._tapes.entries()) {
       tape.gain = ctx.createGain();
       tape.gain.gain.value = this._effectiveLevel(index) * tape.trim;
-      tape.gain.connect(this._synthBus);
+      if (!this._features.stage) tape.gain.connect(this._synthBus);
     }
     this._tone = ctx.createBiquadFilter();
     this._tone.type = 'lowpass';
     this._tone.Q.value = 0.35;
     this._synthBus.connect(this._tone);
     const dry = ctx.createGain();
-    dry.gain.value = 0.76;
+    dry.gain.value = this._features.stage ? 1 : 0.76;
     this._tone.connect(dry);
     dry.connect(this._compositionMix);
 
     this._effectsSend = ctx.createGain();
-    this._tone.connect(this._effectsSend);
+    if (!this._features.stage) this._tone.connect(this._effectsSend);
     this._wetReturnGate = ctx.createGain();
     this._wetReturnGate.gain.value = this._soloLoopIndex === null ? 1 : 0;
     this._wetReturnGate.connect(this._compositionMix);
     this._impulseBuffer = this._makeImpulse(5.6);
     this._buildEffects();
+    if (this._features.stage) this._buildStage();
 
     this._fileGain = ctx.createGain();
     this._fileGain.gain.value = 1;
@@ -295,6 +313,54 @@ export class LoopraAudio extends EventTarget {
     };
     ctx.addEventListener('statechange', this._onContextStateChange);
     return ctx;
+  }
+
+  _buildStage() {
+    this._rack = new SpaceRack(this._ctx, {
+      dryOutput: this._synthBus, wetOutput: this._wetReturnGate, seed: this._seed,
+      baseDepths: LANE_DEPTH, laneCount: this._tapes.length, settings: this._stage, trim: 1.13,
+    });
+    this._tapes.forEach((tape, index) => {
+      tape.gain.disconnect();
+      tape.gain.connect(this._rack.lanes[index].input);
+    });
+    // The single dark filter of 0.1.1 is opened: each layer now has its own distance.
+    this._tone.frequency.value = 20000;
+    this._rack.update({ elapsed: this._compositionElapsed(), soloIndex: this._soloLoopIndex, immediate: true });
+  }
+
+  _noiseBuffer() {
+    if (!this._whiteNoise) {
+      const ctx = this._ctx;
+      const buffer = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 2), ctx.sampleRate);
+      const random = mulberry32(hashSeed(this._seed, 'noise'));
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < data.length; i++) data[i] = random() * 2 - 1;
+      this._whiteNoise = buffer;
+    }
+    return this._whiteNoise;
+  }
+
+  _partials(kind, hz) {
+    const table = this._features.timbre ? TIMBRES[kind] : null;
+    if (!table) return [{ hz }, { hz: hz * 2.002 }, { hz: hz * 3 }];
+    return table.ratios.map((ratio, i) => ({ hz: hz * ratio, level: table.gains[i], life: table.life[i] }));
+  }
+
+  // Each pass of a loop is a new take: the whole phrase leans a little earlier or
+  // later, and each note nudges a little on its own. Same seed, same takes.
+  _eventShift(lane, cycle, index, tape) {
+    if (!this._features.variation || this._stage.variation <= 0) return 0;
+    const wander = Math.min(3, tape.duration * 0.04) * this._stage.variation;
+    const phrase = (unit(this._seed, 'shift', lane, cycle) * 2 - 1) * wander;
+    const note = (unit(this._seed, 'nudge', lane, cycle, index) * 2 - 1) * Math.min(0.18, wander * 0.08);
+    return phrase + note;
+  }
+
+  // Where a layer sits now; before the first sound, at home, squeezed by the staging amount.
+  _depthOf(index, elapsed) {
+    if (this._rack) return this._rack.depthAt(index, elapsed);
+    return Math.min(1, Math.max(0, 0.5 + (LANE_DEPTH[index] - 0.5) * this._stage.amount));
   }
 
   _buildEffects() {
@@ -372,7 +438,7 @@ export class LoopraAudio extends EventTarget {
     if (!this._ctx) return;
     const now = this._ctx.currentTime;
     this._compositionMix.gain.setTargetAtTime(this._tapes.some((_, index) => this._effectiveLevel(index) > 0) ? 1 : 0, now, 0.06);
-    this._tone.frequency.setTargetAtTime(2100 * (0.72 + this._intensity * 0.6), now, 1.8);
+    this._tone.frequency.setTargetAtTime(this._features.stage ? 20000 : 2100 * (0.72 + this._intensity * 0.6), now, 1.8);
     this._delay.delayTime.setTargetAtTime(0.73, now, 0.9);
     this._airFilter.frequency.setTargetAtTime(1050, now, 3);
     if (this.isFile || this._soloLoopIndex !== null) this._ramp(this._airGain.gain, 0, 0.035);
@@ -517,10 +583,17 @@ export class LoopraAudio extends EventTarget {
       envelope.connect(insectGain);
       insectGain.connect(harmonyGain);
     } else envelope.connect(harmonyGain);
-    const panner = ctx.createStereoPanner ? ctx.createStereoPanner() : ctx.createGain();
-    if (panner.pan) panner.pan.value = (variation() * 2 - 1) * (kind === 'bass' ? 0.1 : 0.6);
-    harmonyGain.connect(panner);
-    panner.connect(this._tapes[lane].gain);
+    let panner;
+    const placementNodes = [];
+    if (this._rack) {
+      panner = this._rack.placeVoice(harmonyGain, this._tapes[lane].gain, lane, variation() * 2 - 1,
+        kind === 'bass' ? 0.1 / 0.6 : 1, this._compositionElapsed(), placementNodes);
+    } else {
+      panner = ctx.createStereoPanner ? ctx.createStereoPanner() : ctx.createGain();
+      if (panner.pan) panner.pan.value = (variation() * 2 - 1) * (kind === 'bass' ? 0.1 : 0.6);
+      harmonyGain.connect(panner);
+      panner.connect(this._tapes[lane].gain);
+    }
     const points = this._envelopePoints(kind, duration, amplitude);
     envelope.gain.setValueAtTime(0, at);
     // At the initial tape phase, or after an imported track, enter an already
@@ -535,7 +608,7 @@ export class LoopraAudio extends EventTarget {
     }
 
     const endAt = at + duration - seek + (kind === 'shimmer' || kind === 'wail' ? 0 : 0.05);
-    const nodes = [envelope, harmonyGain, panner];
+    const nodes = [envelope, harmonyGain, panner, ...placementNodes];
     if (insectGain) nodes.push(insectGain);
     const oscillators = [];
     for (let index = 0; index < notes.length; index++) {
@@ -580,12 +653,41 @@ export class LoopraAudio extends EventTarget {
         : index === 0 ? (kind === 'paper' ? 0.35 : 1)
         : index === 1 ? (kind === 'bell' || kind === 'gamelan' ? 0.28 : ['felt', 'velvet', 'celesta'].includes(kind) ? 0.1 : 0.15)
         : kind === 'bell' || kind === 'gamelan' ? 0.07 : 0.025;
+      if (typeof note === 'object' && note.level !== undefined) {
+        gain.gain.value = note.level;
+        if (note.life < 1) {
+          const life = Math.max(0.12, (duration - seek) * note.life);
+          gain.gain.setValueAtTime(note.level, at);
+          gain.gain.exponentialRampToValueAtTime(Math.max(0.0001, note.level * 0.03), at + life);
+        }
+      }
       oscillator.connect(gain);
       gain.connect(envelope);
       oscillator.start(at);
       oscillator.stop(endAt);
       oscillators.push(oscillator);
       nodes.push(oscillator, gain);
+    }
+    if (this._features.timbre && seek === 0 && HAMMER[kind]) {
+      const touch = HAMMER[kind];
+      const f0 = typeof notes[0] === 'number' ? frequency(notes[0]) : notes[0].hz;
+      const noise = ctx.createBufferSource();
+      const band = ctx.createBiquadFilter();
+      const thump = ctx.createGain();
+      noise.buffer = this._noiseBuffer();
+      band.type = 'bandpass';
+      band.frequency.value = Math.min(5200, f0 * touch.center);
+      band.Q.value = touch.q;
+      thump.gain.setValueAtTime(0, at);
+      thump.gain.linearRampToValueAtTime(amplitude * touch.level, at + 0.004);
+      thump.gain.exponentialRampToValueAtTime(0.00001, at + touch.seconds);
+      noise.connect(band);
+      band.connect(thump);
+      thump.connect(harmonyGain);
+      noise.start(at, variation() * (noise.buffer.duration - 0.5));
+      noise.stop(at + touch.seconds + 0.02);
+      oscillators.push(noise);
+      nodes.push(noise, band, thump);
     }
     if (motion) {
       const vibrato = ctx.createOscillator();
@@ -633,6 +735,31 @@ export class LoopraAudio extends EventTarget {
       oscillators.push(air);
       nodes.push(air, filter, breathGain);
     }
+    if (this._features.timbre && (kind === 'air' || kind === 'paper')) {
+      // 0.1.1 had only a low rumble here. Real breath lives between 1 and 6 kHz.
+      const breath = ctx.createBufferSource();
+      const sheen = ctx.createBiquadFilter();
+      const sheenGain = ctx.createGain();
+      breath.buffer = this._noiseBuffer();
+      breath.loop = true;
+      sheen.type = 'bandpass';
+      sheen.frequency.value = kind === 'paper' ? 3400 : 2300;
+      sheen.Q.value = 0.7;
+      // Breath, not hiss: a soft ceiling keeps the noise out of the very top.
+      const ceiling = ctx.createBiquadFilter();
+      ceiling.type = 'lowpass';
+      ceiling.frequency.value = 7500;
+      ceiling.Q.value = 0.5;
+      sheenGain.gain.value = kind === 'paper' ? 0.9 : 0.6;
+      breath.connect(sheen);
+      sheen.connect(ceiling);
+      ceiling.connect(sheenGain);
+      sheenGain.connect(envelope);
+      breath.start(at, variation() * (breath.buffer.duration - 0.5));
+      breath.stop(endAt);
+      oscillators.push(breath);
+      nodes.push(breath, sheen, ceiling, sheenGain);
+    }
     const voice = { envelope, harmonyGain, harmonyRank, lane, kind, nodes, oscillators, startAt: at, endAt, disposed: false, stopping: false };
     this._voices.add(voice);
     let ended = 0;
@@ -665,10 +792,15 @@ export class LoopraAudio extends EventTarget {
     }
   }
 
-  _scheduleTapeEvent(lane, event, index, startPosition, elapsed, now) {
+  _scheduleTapeEvent(lane, event, index, startPosition, elapsed, now, cycle = null) {
     const seek = Math.max(0, elapsed - startPosition);
     const at = now + Math.max(0.025, startPosition - elapsed);
-    const seed = KEYS[this._key] * 100003 + lane * 1009 + index * 97;
+    let seed = KEYS[this._key] * 100003 + lane * 1009 + index * 97;
+    if (this._features.variation && cycle !== null && this._stage.variation > 0) {
+      seed = (seed + hashSeed(this._seed, lane, cycle, index) % 1000003) >>> 0;
+      const swing = (unit(this._seed, 'level', lane, cycle, index) * 2 - 1) * 1.6 * this._stage.variation;
+      event = { ...event, amplitude: event.amplitude * 10 ** (swing / 20) };
+    }
     if (['pad', 'silk', 'bell', 'friselis', 'warmglass', 'velvet', 'reverse', 'celesta', 'gamelan', 'harmonica', 'halo', 'bassbell'].includes(event.kind)) {
       event.notes.forEach((note, noteIndex) => {
         const stagger = event.kind === 'bell' || event.kind === 'velvet' ? 0.055 : event.kind === 'warmglass' ? 0.09 : 0.21;
@@ -679,7 +811,7 @@ export class LoopraAudio extends EventTarget {
         const attenuation = [1, 0.55, 0.38, 0.24, 0.2][rank];
         const hz = frequency(note);
         const partials = ['bell', 'warmglass', 'velvet', 'celesta', 'gamelan', 'bassbell'].includes(event.kind)
-          ? [{ hz }, { hz: hz * 2.002 }, { hz: hz * 3 }]
+          ? this._partials(event.kind, hz)
           : event.kind === 'friselis' ? [note, note + 12] : [note, note];
         this._voice(partials, noteAt, event.duration - offset,
           event.amplitude * (noteIndex === 0 ? 0.88 : 1) * attenuation,
@@ -705,7 +837,7 @@ export class LoopraAudio extends EventTarget {
       ], at, event.duration, event.amplitude, 'call', lane, seed, seek);
     } else {
       const hz = frequency(event.notes[0]);
-      this._voice([{ hz }, { hz: hz * 2.002 }, { hz: hz * 3 }], at, event.duration, event.amplitude, event.kind, lane, seed, seek);
+      this._voice(this._partials(event.kind, hz), at, event.duration, event.amplitude, event.kind, lane, seed, seek);
     }
   }
 
@@ -714,6 +846,10 @@ export class LoopraAudio extends EventTarget {
     const now = this._ctx.currentTime;
     const elapsed = this._compositionElapsed();
     const ahead = elapsed + 1.5;
+    if (this._rack && now >= this._rackNext) {
+      this._rackNext = now + 1;
+      this._rack.update({ elapsed, soloIndex: this._soloLoopIndex });
+    }
     this._tapes.forEach((tape, lane) => {
       if (this._effectiveLevel(lane) <= 0) return;
       if (lane === this._soloLoopIndex && elapsed < this._soloAuditionUntil) return;
@@ -727,11 +863,11 @@ export class LoopraAudio extends EventTarget {
       const lastCycle = Math.floor((ahead + tape.phase) / tape.duration);
       for (let cycle = firstCycle; cycle <= lastCycle; cycle++) {
         events.forEach((event, index) => {
-          const start = cycle * tape.duration + event.at - tape.phase;
+          const start = cycle * tape.duration + event.at - tape.phase + this._eventShift(lane, cycle, index, tape);
           const end = start + event.duration;
           if (start > ahead || end <= elapsed || tape.scheduled.has(`${cycle}:${index}`)) return;
           tape.scheduled.set(`${cycle}:${index}`, end);
-          this._scheduleTapeEvent(lane, event, index, start, elapsed, now);
+          this._scheduleTapeEvent(lane, event, index, start, elapsed, now, cycle);
         });
       }
     });
@@ -919,8 +1055,10 @@ export class LoopraAudio extends EventTarget {
         this._wetReturnGate.gain.cancelScheduledValues(now);
         this._wetReturnGate.gain.setValueAtTime(0, now);
         this._buildEffects();
+        this._rack?.resetTails();
         this._ramp(this._wetReturnGate.gain, 1, 0.24);
       } else this._ramp(this._wetReturnGate.gain, 0, 0.035);
+      this._rack?.update({ elapsed: this._compositionElapsed(), soloIndex: index, fast: true });
       this._tapes.forEach((tape, lane) => this._ramp(tape.gain.gain, this._effectiveLevel(lane) * tape.trim));
       this._configureSound();
       this._tick();
@@ -1049,6 +1187,8 @@ export class LoopraAudio extends EventTarget {
         level: tape.level,
         effectiveLevel: this._effectiveLevel(index),
         solo: index === this._soloLoopIndex,
+        depth: this._features.stage ? this._depthOf(index, elapsed) : 0.5,
+        plane: this._features.stage ? planeFor(this._depthOf(index, elapsed)).label : '',
       };
     });
   }
@@ -1107,6 +1247,37 @@ export class LoopraAudio extends EventTarget {
     if (this._ctx) this._master.gain.setTargetAtTime(this._volume, this._ctx.currentTime, 0.08);
   }
 
+  get seed() {
+    return this._seed;
+  }
+
+  get stage() {
+    return { ...this._stage, timbre: this._features.timbre };
+  }
+
+  setSeed(seed) {
+    const next = (Number.isInteger(seed) ? seed : this._seed) >>> 0;
+    if (next === this._seed) return;
+    this._seed = next;
+    this._whiteNoise = null;
+    if (this._rack) {
+      this._rack.dispose();
+      this._buildStage();
+    }
+  }
+
+  setStage(changes = {}) {
+    const next = { ...this._stage };
+    for (const name of ['amount', 'walk', 'size', 'variation']) if (name in changes) next[name] = clamp(changes[name]);
+    if ('listening' in changes) next.listening = changes.listening === 'speakers' ? 'speakers' : 'headphones';
+    this._stage = next;
+    if ('timbre' in changes) this._features.timbre = Boolean(changes.timbre);
+    if (this._rack) {
+      this._rack.configure(next);
+      this._rack.update({ elapsed: this._compositionElapsed(), soloIndex: this._soloLoopIndex, fast: true });
+    }
+  }
+
   getLevels() {
     const time = globalThis.performance ? performance.now() : Date.now();
     const dt = this._lastLevelAt ? Math.min(0.15, (time - this._lastLevelAt) / 1000) : 1 / 60;
@@ -1163,6 +1334,7 @@ export class LoopraAudio extends EventTarget {
       }
       this._voices.clear();
       try { this._air.stop(); } catch {}
+      this._rack?.dispose();
       for (const track of this._recordingDestination.stream.getTracks()) track.stop();
       this._ctx.close().catch(() => {});
       this._fileBuffer = null;

@@ -6,9 +6,22 @@
 
 Pads and bowed bass make a soft foundation. Glass, felt piano, little ripples, distant calls and long chords find their way through it. Leave a few layers together, or listen to one on its own.
 
-![Loopra: sound controls on the left, 32 individual layers with on/off and headphone buttons on the right](docs/loopra.png)
+![Loopra Stage: the place's controls on the left; on the right, the harmonic pad with its own level, then the other layers, each with an on/off switch and a headphone button](docs/loopra.png)
 
 *Sixteen layers are enabled at first. Every sound is synthesized in the browser.*
+
+## New in 0.2.0 — Stage
+
+Loopra stops being one room and becomes **a place with depth**. Every layer now sits at its own distance, from *at your ears* to *on the horizon*, and is tagged **EAR, NEAR, ROOM, HALL** or **FAR**.
+
+- **Staging**, **Walking** and **Space**: how far apart the layers stand, how slowly they drift nearer and farther, and how large the room is. Close sounds are dry, bright and a little to one side on headphones; far ones are dark and washed in a very large reverberation.
+- **Variation**: every pass of a loop is a new take, a little earlier or later, softer or louder, in another position. Zero repeats exactly, as before.
+- **Richer timbres**: struck sounds lose their upper partials first, with a soft touch of felt or glass, and *High air* and *Paper air* gain a real breath.
+- **The harmonic pad is the foundation.** Its card stands apart from the others and it has a level of its own, starting at 70 % so that it does not mask the other layers.
+- **Silk & light starts quiet.** This sustained veil of high notes almost never stops, and its notes sit where the other layers have little energy, so at full level it pierces through everything else. It now starts at 12 % of its old level; it is still an ordinary on/off layer.
+- **A seed**, shown in the footer and saved with your setup, makes every room and every take reproducible.
+
+**The original Loopra 0.1.1 is still here**: [release v0.1.1](https://github.com/Quick-Eyed-Sky/loopra/releases/tag/v0.1.1), and the tag `v0.1.1`.
 
 No account, samples, model downloads or package installation. The interface is in English.
 
@@ -45,6 +58,13 @@ Press **Start listening**. Browsers wait for a click before making sound. **Spac
 | **Mode** | Aeolian (minor), Ionian (major), Dorian, Lydian, Mixolydian, Phrygian or minor pentatonic. The pitched layers follow the same mode. |
 | **Harmonic complexity** | Moves from open, simple voicings to more softly spaced chord extensions. |
 | **New loop lengths** | Draws new periods for the layers while keeping your chosen sounds. Their meetings change. |
+| **Harmonic pad** | The foundation's own level, starting at 70 %. |
+| **Staging** | From *Flat* (one shared room, as in 0.1.1) to *Deep* (ears to horizon). |
+| **Walking** | How slowly the layers drift nearer and farther, over minutes. |
+| **Space** | From a small room to a vast hall. |
+| **Variation** | From exact repeats to takes played by hand. |
+| **Listening on** | *Headphones* put the closest sounds beside your ears with tiny differences between them; *Speakers* rely on level, darkness and reverberation alone. |
+| **Timbres** | *Richer* or the original *Classic* pure tones. |
 | **Volume** | Sets the whole instrument's level. |
 
 Some layers leave long silences between phrases. The headphone button lets you hear what one sounds like without waiting for its next entrance, including the automatic Distant calls layer. The small dot shows when a phrase is sounding.
@@ -53,20 +73,20 @@ Some layers leave long silences between phrases. The headphone button lets you h
 
 Loopra remembers your key, mode, volume, complexity, loop lengths and chosen layers in this browser. **Save setup** downloads them as a small JSON file; **Load setup** restores one, on this machine or another.
 
-A setup restores the controls and periods, rather than recording a performance. It does not capture the exact playback position or every small variation in the sound. Solo is a temporary listening aid; the saved setup keeps your chosen mix.
+A setup restores the controls, periods and seed, rather than recording a performance. It does not capture the exact playback position or every small variation in the sound. Solo is a temporary listening aid; the saved setup keeps your chosen mix.
 
 Browser storage belongs to the address you open. Hosted copies and local copies on different ports have separate settings; use a setup file to carry a mix between them. Clearing website data or closing a private browsing session can remove stored settings.
 
 ## A few limits
 
 - This is a live synthesis instrument. It does not import, analyze or slice audio, and it does not record or export an audio file.
-- The musical phrases are composed in the code; independent loop lengths change how they overlap. Choosing new lengths does not write new melodies.
+- The musical phrases are composed in the code; independent loop lengths change how they overlap. Choosing new lengths does not write new melodies, and since 0.2.0 each pass of a loop is a new take of the same notes.
 - Browser or operating-system audio interruptions can pause playback. Reloading or closing the page stops it.
 - Tests check scheduling and state, but the character and balance of a mix are things to judge by listening.
 
 ## How it is made
 
-Plain HTML, CSS and JavaScript, with Web Audio oscillators, envelopes, filters, delay and reverb. Each layer has its own period and scheduled phrase. No build step or runtime dependency is needed.
+Plain HTML, CSS and JavaScript, with Web Audio oscillators, envelopes, filters, delay and reverb. Each layer has its own period and scheduled phrase; `space.js` places every layer in the room, `timbre.js` shapes the struck sounds and `rng.js` makes it all reproducible. No build step or runtime dependency is needed.
 
 All synthesis happens in your browser. Settings stay in local storage unless you choose to save a JSON file. There are no analytics, remote fonts, external audio services or model calls.
 

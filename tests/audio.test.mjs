@@ -683,3 +683,144 @@ test('pause and destroy cancel pending auditions without reactivating transport 
     if (action === 'destroy') assert.equal(context.sources.size, 0);
   }
 });
+
+// ---- Loopra Stage -------------------------------------------------------------
+// These check routing, ordering and determinism of the Stage additions. How they
+// sound is for the ears; the numbers here only guard against silent mistakes.
+function stageEngine(t, features = { stage: true, timbre: true, variation: true }, seed = 7) {
+  const audio = new LoopraAudio({ seed, features });
+  t.after(() => audio.destroy());
+  return audio;
+}
+
+test('classic mode (every Stage feature off) keeps the 0.1.1 signal path', async (t) => {
+  const audio = engineFor(t);
+  await playing(audio);
+  assert.equal(audio._rack, null);
+  assert.ok(audio._tapes.every((tape) => tape.gain.connections.has(audio._synthBus)));
+});
+
+test('stage: every layer feeds its own distance rack and reaches the output', async (t) => {
+  const audio = stageEngine(t);
+  const context = await playing(audio);
+  const rack = audio._rack;
+  assert.equal(rack.lanes.length, 32);
+  audio._tapes.forEach((tape, index) => {
+    assert.ok(tape.gain.connections.has(rack.lanes[index].input), `layer ${index} must feed its rack lane`);
+    assert.ok(!tape.gain.connections.has(audio._synthBus), `layer ${index} must not bypass the rack`);
+  });
+  context.advance(30);
+  assert.ok(reachesOutput(rack.lanes[4].input, context), 'a rack lane must reach the output');
+});
+
+test('stage: farther layers are darker, quieter in the direct sound, and wetter', async (t) => {
+  const audio = stageEngine(t);
+  await playing(audio);
+  const lanes = audio._rack.lanes.map((lane) => ({ lane, depth: lane.depth })).sort((a, b) => a.depth - b.depth);
+  assert.ok(lanes[0].depth < 0.15 && lanes.at(-1).depth > 0.85, 'the 32 layers must span ears to horizon');
+  for (let i = 1; i < lanes.length; i++) {
+    const near = lanes[i - 1].lane;
+    const far = lanes[i].lane;
+    assert.ok(far.low.frequency.initial <= near.low.frequency.initial + 1e-6, 'farther means darker');
+    assert.ok(far.dry.gain.initial <= near.dry.gain.initial + 1e-9, 'farther means a quieter direct sound');
+    assert.ok(far.sends.hall.gain.initial >= near.sends.hall.gain.initial - 1e-9, 'farther means more hall');
+    assert.ok(far.pre.delayTime.initial <= near.pre.delayTime.initial + 1e-9, 'farther means a shorter pre-delay');
+  }
+});
+
+test('stage: the same seed builds the same rooms, another seed builds other rooms', async (t) => {
+  const first = stageEngine(t, undefined, 11);
+  await playing(first);
+  const twin = stageEngine(t, undefined, 11);
+  await playing(twin);
+  const other = stageEngine(t, undefined, 12);
+  await playing(other);
+  const slice = (engine) => Array.from(engine._rack.reverbs.hall.buffer.getChannelData(0).slice(0, 4000));
+  assert.deepEqual(slice(first), slice(twin));
+  assert.notDeepEqual(slice(first), slice(other));
+});
+
+test('stage: with variation at zero loops repeat exactly; above zero each pass is a new take', (t) => {
+  const audio = stageEngine(t);
+  const tape = audio._tapes[4];
+  audio.setStage({ variation: 0 });
+  assert.equal(audio._eventShift(4, 3, 0, tape), 0);
+  audio.setStage({ variation: 0.8 });
+  const shifts = [1, 2, 3, 4].map((cycle) => audio._eventShift(4, cycle, 0, tape));
+  assert.equal(new Set(shifts).size, 4);
+  assert.ok(shifts.every((shift) => Math.abs(shift) < 3.5), 'takes stay close to their place in the loop');
+  const twin = stageEngine(t);
+  twin.setLoopDurations(durations(audio));
+  twin.setStage({ variation: 0.8 });
+  assert.deepEqual([1, 2, 3, 4].map((cycle) => twin._eventShift(4, cycle, 0, twin._tapes[4])), shifts);
+});
+
+test('stage: settings are clamped and listening mode is validated', (t) => {
+  const audio = stageEngine(t);
+  audio.setStage({ amount: 7, walk: -2, size: Number.NaN, listening: 'cathedral' });
+  const stage = audio.stage;
+  assert.equal(stage.amount, 1);
+  assert.equal(stage.walk, 0);
+  assert.equal(stage.size, 0);
+  assert.equal(stage.listening, 'headphones');
+  audio.setStage({ listening: 'speakers', timbre: false });
+  assert.equal(audio.stage.listening, 'speakers');
+  assert.equal(audio.stage.timbre, false);
+});
+
+test('stage: all 32 layers for ten minutes stay bounded, finite and labelled by plane', async (t) => {
+  const audio = stageEngine(t);
+  for (let i = 0; i < 32; i++) audio.setLoopLevel(i, 1);
+  const context = await playing(audio);
+  let peak = 0;
+  for (let i = 0; i < 600; i++) { context.advance(1); peak = Math.max(peak, audio._voices.size); }
+  assert.ok(peak < 160, `voices stayed bounded: ${peak}`);
+  assert.ok(audio.getLoopState().every((loop) => Number.isFinite(loop.depth) && ['EAR', 'NEAR', 'ROOM', 'HALL', 'FAR'].includes(loop.plane)));
+});
+
+test('stage: solo plays one layer at a clear distance and leaving solo resets the tails', async (t) => {
+  const audio = stageEngine(t);
+  await playing(audio);
+  const before = audio._rack.reverbs.hall.convolver;
+  assert.equal(await audio.auditionLoop(13), true);
+  assert.ok(Math.abs(audio._rack.lanes[13].depth - 0.28) < 1e-9, 'a soloed layer is brought to a clear, near distance');
+  audio.setSoloLoop(null);
+  assert.notEqual(audio._rack.reverbs.hall.convolver, before, 'tails start fresh after a solo');
+});
+
+test('stage: the harmonic pad starts at 70 % so it does not mask the others; classic keeps 100 %', (t) => {
+  const staged = stageEngine(t);
+  assert.equal(staged.getLoopState()[0].level, 0.7);
+  assert.equal(staged.getLoopState()[1].level, 1);
+  const classic = engineFor(t);
+  assert.equal(classic.getLoopState()[0].level, 1, 'the 0.1.1 path is untouched');
+});
+
+test('stage: Silk & light, a veil that almost never stops, starts at 12 %; classic keeps full level', async (t) => {
+  const staged = stageEngine(t);
+  const silk = staged.getLoopState().findIndex((loop) => loop.id === 'silk');
+  assert.ok(silk > 0, 'the layer exists');
+  const stagedContext = await playing(staged);
+  assert.equal(staged.getLoopState()[silk].level, 1, 'it stays an ordinary on/off layer');
+  assert.ok(Math.abs(staged._tapes[silk].gain.gain.valueAt(stagedContext.currentTime) - 0.12) < 0.005, 'its gain starts at 12 %');
+  assert.ok(Math.abs(staged._tapes[1].gain.gain.valueAt(stagedContext.currentTime) - 1) < 0.01, 'other layers are untouched');
+  const classic = engineFor(t);
+  const classicContext = await playing(classic);
+  assert.ok(Math.abs(classic._tapes[silk].gain.gain.valueAt(classicContext.currentTime) - 1) < 0.01, 'the 0.1.1 path is untouched');
+});
+
+test('stage: the pad has its own level, and only the pad changes', async (t) => {
+  const audio = stageEngine(t);
+  const context = await playing(audio);
+  audio.setLoopLevel(0, 0.35);
+  context.advance(2);
+  const loops = audio.getLoopState();
+  assert.equal(loops[0].level, 0.35);
+  assert.equal(loops[0].effectiveLevel, 0.35);
+  assert.equal(loops[1].level, 1);
+  assert.ok(Math.abs(audio._tapes[0].gain.gain.valueAt(context.currentTime) - 0.35) < 0.01, 'the pad gain follows its level');
+  assert.ok(Math.abs(audio._tapes[1].gain.gain.valueAt(context.currentTime) - 1) < 0.01, 'other layers are untouched');
+  audio.setLoopLevel(0, 0);
+  context.advance(1);
+  assert.equal(audio.getLoopState()[0].effectiveLevel, 0, 'at zero the pad is off');
+});

@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#131914">
   <meta name="description" content="Loopra is a calm ambient instrument: 32 independent loops, one shared key, and nothing but sound. Made in your browser.">
-  <title>Loopra — calm, in layers</title>
+  <title>Loopra Stage — calm, in layers</title>
   <link rel="icon" type="image/svg+xml" href="./icon.svg">
-  <link rel="stylesheet" href="./style.css?v=2">
+  <link rel="stylesheet" href="./style.css?v=3">
 </head>
 <body>
   <svg class="symbols" aria-hidden="true"><defs>
@@ -23,7 +23,7 @@
 
   <header class="app-header">
     <a class="brand" href="./" aria-label="Loopra home"><span class="brand-mark" aria-hidden="true"></span>loopra<span class="wordmark-dot">.</span></a>
-    <span class="brand-note">CALM, IN LAYERS</span>
+    <span class="brand-note">CALM, IN LAYERS · STAGE</span>
     <div class="header-end"><span class="local-label"><i></i> JUST SOUND. MADE HERE.</span><button id="helpButton" class="help-button" aria-label="About Loopra" title="About Loopra">?</button></div>
   </header>
 
@@ -47,6 +47,17 @@
           <label class="slider-label" for="complexity"><span>Harmonic complexity</span><output id="complexityValue">45</output></label><input id="complexity" type="range" min="0" max="100" value="45"><div class="scale-caption"><span>Open & simple</span><span>Quietly enriched</span></div>
         </section>
 
+        <section class="control-section stage-section">
+          <div class="section-label"><span>THE PLACE · EARS TO HORIZON</span><span id="stageReadout">STAGED</span></div>
+          <div class="stage-grid">
+            <div><label class="slider-label" for="stageAmount"><span>Staging</span><output id="stageAmountValue">100</output></label><input id="stageAmount" type="range" min="0" max="100" value="100"><div class="scale-caption"><span>Flat</span><span>Deep</span></div></div>
+            <div><label class="slider-label" for="stageWalk"><span>Walking</span><output id="stageWalkValue">40</output></label><input id="stageWalk" type="range" min="0" max="100" value="40"><div class="scale-caption"><span>Still</span><span>Drifting</span></div></div>
+            <div><label class="slider-label" for="stageSize"><span>Space</span><output id="stageSizeValue">50</output></label><input id="stageSize" type="range" min="0" max="100" value="50"><div class="scale-caption"><span>Room</span><span>Vast</span></div></div>
+            <div><label class="slider-label" for="stageVariation"><span>Variation</span><output id="stageVariationValue">50</output></label><input id="stageVariation" type="range" min="0" max="100" value="50"><div class="scale-caption"><span>Exact</span><span>By hand</span></div></div>
+          </div>
+          <div class="tonality-fields stage-fields"><label for="stageListening">Listening on<select id="stageListening"><option value="headphones" selected>Headphones</option><option value="speakers">Speakers</option></select></label><label for="stageTimbre">Timbres<select id="stageTimbre"><option value="rich" selected>Richer</option><option value="classic">Classic</option></select></label></div>
+        </section>
+
 
         <section class="control-section volume-section"><label class="slider-label" for="volume"><span>Volume</span><output id="volumeValue">50</output></label><input id="volume" type="range" min="0" max="100" value="50"></section>
         <button id="renew" class="renew-button"><svg><use href="#shuffle"/></svg><span>New loop lengths</span><span>↻</span></button>
@@ -58,16 +69,17 @@
         <div class="layers-heading"><div><p class="section-label">THE LAYERS</p><h2>Small sounds. Long conversations.</h2></div><span class="enabled-badge" id="enabledBadge">16 ON · 32 AVAILABLE</span></div>
         <div class="layer-tools"><p>Click to switch. Headphones to solo.</p><div><button id="allOn">All on</button><span>/</span><button id="allOff">All off</button></div></div>
         <div id="soloPanel" class="solo-panel" hidden><span><svg aria-hidden="true"><use href="#headphones"/></svg> SOLO <strong id="soloName"></strong></span><button id="returnToMix">Return to mix ↗</button></div>
+        <div id="foundation" class="foundation"><div class="foundation-level"><label for="stagePad"><span>Harmonic pad <small>THE FOUNDATION</small></span><output id="stagePadValue">70</output></label><input id="stagePad" type="range" min="0" max="100" value="70"><p>The warm bed everything else rests on. It starts at 70 % so that it does not mask the other layers; this level is for the pad alone.</p></div></div>
         <div id="loopList" class="loop-list"></div>
         <div class="list-footer"><span><i class="event-dot"></i> A lit dot means a sound is passing.</span><span>Each loop keeps its own time.</span></div>
       </section>
     </div>
 
-    <footer class="app-footer"><span>LOOPRA <span class="slash">/</span> NOTHING BUT SOUND <span class="app-version">v0.1.1</span></span><div><button id="saveSetup"><svg><use href="#download"/></svg>Save setup</button><button id="loadSetup"><svg><use href="#upload"/></svg>Load setup</button><input id="setupFile" type="file" accept="application/json,.json" hidden></div><span class="shortcut-note"><kbd>space</kbd> to play / pause</span></footer>
+    <footer class="app-footer"><span>LOOPRA <span class="slash">/</span> NOTHING BUT SOUND <span class="app-version">v0.2.0 · STAGE · SEED <span id="seedValue"></span></span></span><div><button id="saveSetup"><svg><use href="#download"/></svg>Save setup</button><button id="loadSetup"><svg><use href="#upload"/></svg>Load setup</button><input id="setupFile" type="file" accept="application/json,.json" hidden></div><span class="shortcut-note"><kbd>space</kbd> to play / pause</span></footer>
   </main>
 
-  <dialog id="about" aria-labelledby="aboutTitle"><div class="dialog-heading"><span class="section-label">HELLO, LOOPRA.</span><button id="closeAbout" aria-label="Close about" class="close-button"><svg><use href="#close"/></svg></button></div><h2 id="aboutTitle">Calm, in layers.</h2><p>Loopra is a small instrument for unhurried listening. Thirty-two original sound layers turn at different lengths, so their encounters keep changing.</p><p>The pads and bowed bass overlap to make a continuous bed. Bells, felt piano, fine ripples, discreet arpeggios, soft breaths and rare little calls drift through it. Every pitched layer belongs to the same musical mode.</p><dl><div><dt>Number of loops</dt><dd>Sets how many layers are enabled. Individual switches update this number too.</dd></div><div><dt>New loop lengths</dt><dd>Draws a new set of periods while keeping your chosen sounds.</dd></div><div><dt>Harmonic complexity</dt><dd>Moves from open, simple voicings to softly spaced seventh, ninth, eleventh and thirteenth colors.</dd></div><div><dt>Headphones · Solo</dt><dd>Listen to one layer on its own, including layers that are switched off. A short audition plays immediately; the layer then follows its own loop. Click the same headphones again to restore your chosen mix.</dd></div><div><dt>Save setup</dt><dd>Keeps your selection, key, mode, volume and loop lengths as a small JSON file.</dd></div></dl><p class="about-note">All sound is synthesized here. No account, samples, model downloads, tracking or external audio services. Closing or reloading the page stops playback; settings are remembered in this browser.</p><button id="aboutDone" class="renew-button">Back to listening <span>↗</span></button></dialog>
+  <dialog id="about" aria-labelledby="aboutTitle"><div class="dialog-heading"><span class="section-label">HELLO, LOOPRA.</span><button id="closeAbout" aria-label="Close about" class="close-button"><svg><use href="#close"/></svg></button></div><h2 id="aboutTitle">Calm, in layers.</h2><p>Loopra is a small instrument for unhurried listening. Thirty-two original sound layers turn at different lengths, so their encounters keep changing.</p><p>The pads and bowed bass overlap to make a continuous bed. Bells, felt piano, fine ripples, discreet arpeggios, soft breaths and rare little calls drift through it. Every pitched layer belongs to the same musical mode.</p><dl><div><dt>Number of loops</dt><dd>Sets how many layers are enabled. Individual switches update this number too.</dd></div><div><dt>New loop lengths</dt><dd>Draws a new set of periods while keeping your chosen sounds.</dd></div><div><dt>Harmonic complexity</dt><dd>Moves from open, simple voicings to softly spaced seventh, ninth, eleventh and thirteenth colors.</dd></div><div><dt>Staging</dt><dd>Places each layer between your ears and the horizon: near layers are dry and bright, far layers dark and washed in reverb. At zero, everything shares one room.</dd></div><div><dt>Walking</dt><dd>Lets layers drift slowly nearer and farther over several minutes.</dd></div><div><dt>Space</dt><dd>From a small room to a vast hall.</dd></div><div><dt>Variation</dt><dd>Every pass of a loop is played a little differently: slightly earlier or later, softer or louder. At zero, loops repeat exactly.</dd></div><div><dt>Listening on</dt><dd>Headphones use tiny differences between your ears to put sounds right beside them. On speakers, depth comes from level, darkness and reverb alone.</dd></div><div><dt>Harmonic pad</dt><dd>The warm foundation everything rests on. It has a level of its own, starting at 70 %, so you can hear the other layers through it.</dd></div><div><dt>Silk &amp; light</dt><dd>A sustained veil of high notes that almost never stops. It starts at 12 % of its old level so that it does not pierce through the others; switch it on or off like any layer.</dd></div><div><dt>Timbres</dt><dd>Richer: struck sounds fade from the top, with a soft touch of felt or glass. Classic: the original pure tones.</dd></div><div><dt>Headphones · Solo</dt><dd>Listen to one layer on its own, including layers that are switched off. A short audition plays immediately; the layer then follows its own loop. Click the same headphones again to restore your chosen mix.</dd></div><div><dt>Save setup</dt><dd>Keeps your selection, key, mode, volume and loop lengths as a small JSON file.</dd></div></dl><p class="about-note">All sound is synthesized here. No account, samples, model downloads, tracking or external audio services. Closing or reloading the page stops playback; settings are remembered in this browser.</p><button id="aboutDone" class="renew-button">Back to listening <span>↗</span></button></dialog>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="./app.js?v=2"></script>
+  <script type="module" src="./app.js?v=3"></script>
 </body>
 </html>
