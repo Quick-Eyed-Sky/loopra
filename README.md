@@ -6,9 +6,19 @@
 
 Pads and bowed bass make a soft foundation. Glass, felt piano, little ripples, distant calls and long chords find their way through it. Leave a few layers together, or listen to one on its own.
 
-![Loopra Stage: the place's controls on the left; on the right, the harmonic pad with its own level, then the other layers, each with an on/off switch and a headphone button](docs/loopra.png)
+![Loopra, Friday Afternoon: on the left the controls of the place and the melody machine; on the right the harmonic pad with its own level, then the other layers, each with an on/off switch and a headphone button](docs/loopra.png)
 
 *Sixteen layers are enabled at first. Every sound is synthesized in the browser.*
+
+## New in 0.3.0 — Friday Afternoon
+
+A nod to Brian Eno's *Thursday Afternoon*, which is made of single notes, each repeating at its own irregular interval, so that melodies are never written: they happen when the notes meet. Loopra now has **a melody machine** in the same spirit, and the first thing it does differently is keep every note in harmony with the place.
+
+- **Single notes, each on its own interval.** From 2 to 12 voices. Each voice keeps one note of the chord of the place and plays it again after a time drawn at random between its own shortest and longest interval, so most voices are almost regular and a few wander. Every voice stands at its own distance, from near to far, like the layers. *New intervals* draws them again.
+- **The notes follow the tonal space and the Harmonic complexity.** The machine plays the chord of the place, with the same ranks as the harmonic pad: root, third and fifth always; then the seventh, ninth, eleventh and thirteenth as the Harmonic complexity rises. Moving the slider never moves a note in time; it only decides which colours sound.
+- **Nothing rubs.** Before it plays, each note is checked against the long notes of the layers and against the machine's own notes: no semitone, major seventh, minor ninth or tritone. A note that would rub is replaced by a neighbouring note of the chord, or left out.
+- **Sound.** *Sine with a decay* (the default, as in Eno's piece): attack at once, 2.11 s of decay down to −18 dB, then it holds. *Electric piano* and *Soft piano* are also there; both turn into the sine in the high register, where a struck note sounds like a toy.
+- It is a place, not a song: nothing progresses. The melody machine can be switched off, and it is saved with your setup.
 
 ## New in 0.2.0 — Stage
 
@@ -17,7 +27,7 @@ Loopra stops being one room and becomes **a place with depth**. Every layer now 
 - **Staging**, **Walking** and **Space**: how far apart the layers stand, how slowly they drift nearer and farther, and how large the room is. Close sounds are dry, bright and a little to one side on headphones; far ones are dark and washed in a very large reverberation.
 - **Variation**: every pass of a loop is a new take, a little earlier or later, softer or louder, in another position. Zero repeats exactly, as before.
 - **Richer timbres**: struck sounds lose their upper partials first, with a soft touch of felt or glass, and *High air* and *Paper air* gain a real breath.
-- **The harmonic pad is the foundation.** Its card stands apart from the others and it has a level of its own, starting at 70 % so that it does not mask the other layers.
+- **The harmonic pad is the foundation.** Its card stands apart from the others and it has a level of its own, starting at 50 % so that it does not mask the other layers.
 - **Silk & light starts quiet.** This sustained veil of high notes almost never stops, and its notes sit where the other layers have little energy, so at full level it pierces through everything else. It now starts at 12 % of its old level; it is still an ordinary on/off layer.
 - **A seed**, shown in the footer and saved with your setup, makes every room and every take reproducible.
 
@@ -58,11 +68,12 @@ Press **Start listening**. Browsers wait for a click before making sound. **Spac
 | **Mode** | Aeolian (minor), Ionian (major), Dorian, Lydian, Mixolydian, Phrygian or minor pentatonic. The pitched layers follow the same mode. |
 | **Harmonic complexity** | Moves from open, simple voicings to more softly spaced chord extensions. |
 | **New loop lengths** | Draws new periods for the layers while keeping your chosen sounds. Their meetings change. |
-| **Harmonic pad** | The foundation's own level, starting at 70 %. |
+| **Harmonic pad** | The foundation's own level, starting at 50 %. |
 | **Staging** | From *Flat* (one shared room, as in 0.1.1) to *Deep* (ears to horizon). |
 | **Walking** | How slowly the layers drift nearer and farther, over minutes. |
 | **Space** | From a small room to a vast hall. |
 | **Variation** | From exact repeats to takes played by hand. |
+| **The melody** | The switch turns the melody machine on or off. *Sound*: sine with a decay, electric piano or soft piano. *Voices*: how many single notes keep going. *Level*: how present they are. *New intervals*: draws them again. |
 | **Listening on** | *Headphones* put the closest sounds beside your ears with tiny differences between them; *Speakers* rely on level, darkness and reverberation alone. |
 | **Timbres** | *Richer* or the original *Classic* pure tones. |
 | **Volume** | Sets the whole instrument's level. |
@@ -86,7 +97,7 @@ Browser storage belongs to the address you open. Hosted copies and local copies 
 
 ## How it is made
 
-Plain HTML, CSS and JavaScript, with Web Audio oscillators, envelopes, filters, delay and reverb. Each layer has its own period and scheduled phrase; `space.js` places every layer in the room, `timbre.js` shapes the struck sounds and `rng.js` makes it all reproducible. No build step or runtime dependency is needed.
+Plain HTML, CSS and JavaScript, with Web Audio oscillators, envelopes, filters, delay and reverb. Each layer has its own period and scheduled phrase; `space.js` places every layer in the room, `timbre.js` shapes the struck sounds and `rng.js` makes it all reproducible. The melody machine is `machine.js` (the notes, the guard), `voices.js` (the three sounds) and `machine-audio.js` (the engine plus the machine, in the same room). No build step or runtime dependency is needed.
 
 All synthesis happens in your browser. Settings stay in local storage unless you choose to save a JSON file. There are no analytics, remote fonts, external audio services or model calls.
 
@@ -105,6 +116,8 @@ The tests use a simulated audio clock and graph; they do not replace listening i
 ## Who made this
 
 Jean-Pascal — **[Quick-Eyed Sky](https://www.youtube.com/@QuickEyedSky)** on YouTube, **[QES](https://huggingface.co/QES)** on Hugging Face. Not a programmer: this exists for the pleasure of hearing small sounds meet in unexpected ways.
+
+*Friday Afternoon* is a homage to Brian Eno's *Thursday Afternoon*. How such a machine is built became clear thanks to [Reverb Machine's deconstruction of the piece](https://reverbmachine.com/blog/deconstructing-brian-eno-thursday-afternoon/); nothing of theirs is used here, no sample and no code: the sounds are synthesized in your browser.
 
 If it gives you a quiet afternoon, you can **[buy me a coffee](https://buymeacoffee.com/oFJ5CiY7n)**. Entirely optional, and Loopra stays exactly as free either way.
 

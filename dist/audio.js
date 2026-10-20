@@ -214,8 +214,8 @@ export class LoopraAudio extends EventTarget {
       trim: this._features.stage && STAGE_TRIM[tape.id] !== undefined ? STAGE_TRIM[tape.id] : (tape.trim ?? 1),
       duration: periods[index],
       phase: tape.early ? periods[index] - tape.early : periods[index] * tape.phaseRatio,
-      // In Stage the harmonic pad, the foundation, starts at 70 % so that it does not mask the others.
-      level: index === 0 && this._features.stage ? 0.7 : index < 16 ? 1 : 0, scheduled: new Map(), gain: null,
+      // In Stage the harmonic pad, the foundation, starts at 50 % so that it does not mask the others.
+      level: index === 0 && this._features.stage ? 0.5 : index < 16 ? 1 : 0, scheduled: new Map(), gain: null,
     }));
     this._motifs = makeMotifs(KEYS[this._key], this._tapes, this._musicalMode);
     this._levels = { bass: 0, mid: 0, high: 0, energy: 0 };

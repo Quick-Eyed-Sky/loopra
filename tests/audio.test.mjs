@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import test, { before, after } from 'node:test';
 import { LoopraAudio, LOOP_COUNT } from '../dist/audio.js';
+import { MachineAudio, MAX_VOICES } from '../dist/machine-audio.js';
+import { VOICES } from '../dist/voices.js';
+import { clash } from '../dist/machine.js';
 
 // This clock checks Web Audio scheduling and resource ownership, not the sound
 // of filters, oscillators or reverberation. Listen in a browser for DSP quality.
@@ -114,6 +117,7 @@ class AudioNodeFake {
     assert.ok(time >= 0);
     this.stopAt = Math.max(time, this.context.currentTime);
   }
+  setPeriodicWave() {}
   getByteFrequencyData(data) { data.fill(0); }
   getFloatTimeDomainData(data) { data.fill(0); }
 }
@@ -140,6 +144,7 @@ class AudioContextFake extends EventTarget {
   createDelay() { return this.node('delay'); }
   createStereoPanner() { return this.node('panner'); }
   createOscillator() { this.oscillatorsCreated++; return this.node('oscillator'); }
+  createPeriodicWave() { return {}; }
   createBufferSource() { return this.node('buffer'); }
   createMediaStreamDestination() { const node = this.node('media'); node.stream = new StreamFake(); return node; }
   createBuffer(channels, length, sampleRate = this.sampleRate) {
@@ -788,9 +793,9 @@ test('stage: solo plays one layer at a clear distance and leaving solo resets th
   assert.notEqual(audio._rack.reverbs.hall.convolver, before, 'tails start fresh after a solo');
 });
 
-test('stage: the harmonic pad starts at 70 % so it does not mask the others; classic keeps 100 %', (t) => {
+test('stage: the harmonic pad starts at 50 % so it does not mask the others; classic keeps 100 %', (t) => {
   const staged = stageEngine(t);
-  assert.equal(staged.getLoopState()[0].level, 0.7);
+  assert.equal(staged.getLoopState()[0].level, 0.5);
   assert.equal(staged.getLoopState()[1].level, 1);
   const classic = engineFor(t);
   assert.equal(classic.getLoopState()[0].level, 1, 'the 0.1.1 path is untouched');
@@ -823,4 +828,87 @@ test('stage: the pad has its own level, and only the pad changes', async (t) => 
   audio.setLoopLevel(0, 0);
   context.advance(1);
   assert.equal(audio.getLoopState()[0].effectiveLevel, 0, 'at zero the pad is off');
+});
+
+// ---- Friday Afternoon: the melody machine ------------------------------------------------------------
+
+function machineEngine(t, machine = { enabled: true, instrument: 'sine' }, seed = 7) {
+  const audio = new MachineAudio({ seed, features: { stage: true, timbre: true, variation: true }, machine });
+  t.after(() => audio.destroy());
+  return audio;
+}
+const played = (audio) => audio._machineLog.filter((note) => note.midi !== null);
+
+test('machine: it adds a lane per voice to the room and plays single notes of the mode', async (t) => {
+  const audio = machineEngine(t);
+  const context = await playing(audio);
+  assert.equal(audio._rack.lanes.length, LOOP_COUNT + MAX_VOICES);
+  context.advance(240);
+  const notes = played(audio);
+  assert.ok(notes.length > 8, `it plays: ${notes.length} notes in four minutes`);
+  const mode = new Set([0, 2, 3, 5, 7, 8, 10].map((step) => (38 + step) % 12));   // D aeolian
+  for (const note of notes) assert.ok(mode.has(note.midi % 12), `${note.midi} belongs to the mode`);
+});
+
+test('machine: no note rubs against the long notes of the layers or against the machine itself', async (t) => {
+  const audio = machineEngine(t);
+  audio.setHarmonyComplexity(1);
+  const context = await playing(audio);
+  context.advance(420);
+  const notes = played(audio);
+  assert.ok(notes.length > 12);
+  notes.forEach((note, i) => {
+    assert.equal(audio.ledgerFor(note.at - 1, note.at + 10).clashes(note.midi, note.at, note.at + 8), false, `note ${i} against the layers`);
+    for (const earlier of notes.slice(0, i)) if (earlier.at + 8 > note.at) assert.equal(clash(note.midi, earlier.midi), false, `note ${i} against the machine`);
+  });
+});
+
+test('machine: Harmonic complexity gates the colour notes; at zero only the chord tones sound', async (t) => {
+  const audio = machineEngine(t);
+  audio.setHarmonyComplexity(0);
+  const context = await playing(audio);
+  context.advance(300);
+  const chord = new Set([0, 3, 7].map((step) => (38 + step) % 12));   // D, F, A
+  const notes = played(audio);
+  assert.ok(notes.length > 6);
+  for (const note of notes) assert.ok(chord.has(note.midi % 12), `${note.midi} is a chord tone`);
+  assert.ok(audio._machineLog.some((note) => note.skipped === 'colour'), 'the colours wait');
+});
+
+test('machine: the switch silences new notes, and a machine that is off plays nothing', async (t) => {
+  const audio = machineEngine(t);
+  const context = await playing(audio);
+  context.advance(120);
+  const before = played(audio).length;
+  assert.ok(before > 3);
+  audio.setMachine({ enabled: false });
+  context.advance(180);
+  assert.equal(played(audio).length, before, 'no new note after the switch');
+  const quiet = machineEngine(t, { instrument: 'sine' });   // enabled is false by default
+  const quietContext = await playing(quiet);
+  quietContext.advance(120);
+  assert.equal(quiet._machineLog.length, 0);
+});
+
+test('machine: settings are clamped, and a new interval draw changes the notes', async (t) => {
+  const audio = machineEngine(t);
+  audio.setMachine({ voices: 99, level: 9, instrument: 'nope' });
+  assert.deepEqual([audio.getMachine().voices, audio.getMachine().level, audio.getMachine().instrument], [MAX_VOICES, 5, 'sine']);
+  const first = machineEngine(t, { enabled: true, salt: 0 });
+  const second = machineEngine(t, { enabled: true, salt: 1 });
+  const a = await playing(first); a.advance(200);
+  const b = await playing(second); b.advance(200);
+  assert.notDeepEqual(played(first).map((n) => n.at), played(second).map((n) => n.at));
+});
+
+test('machine: the pianos turn into the sine in the high register, where they sound like toys', () => {
+  const context = new AudioContextFake();
+  const make = (kind, hz) => VOICES[kind](context, context.createGain(), { hz, at: 0.1, duration: 12, velocity: 0.7 });
+  assert.equal(VOICES.sine(context, context.createGain(), { hz: 880, at: 0.1, duration: 12 }).oscillators.length, 1);
+  for (const kind of ['epiano', 'piano']) {
+    assert.ok(make(kind, 196).oscillators.length > 5, `${kind}: a low note is a full piano voice`);
+    const middle = make(kind, 440).oscillators.length;
+    assert.ok(middle > 5, `${kind}: A4 is mostly the piano, with some sine`);
+    assert.equal(make(kind, 880).oscillators.length, 1, `${kind}: an octave above A4 is a plain sine`);
+  }
 });

@@ -1,4 +1,4 @@
-LOOPRA 0.1.1 — CALM, IN LAYERS
+LOOPRA 0.3.0 — CALM, IN LAYERS · FRIDAY AFTERNOON
 
 1. Keep this whole folder together. Python 3 is required.
 2. On a Mac, double-click Run Loopra.command.
@@ -12,7 +12,7 @@ Apple's explanation: https://support.apple.com/en-us/102445
 Another way to start, from Terminal in this folder:
 python3 scripts/serve.py --open
 
-The footer says v0.1.1. Every layer has a headphone Solo button.
+The footer says v0.3.0 · FRIDAY AFTERNOON. Every layer has a headphone Solo button.
 If an older Loopra tab is still open, use the fresh page opened by this launcher.
 
 Source: https://github.com/Quick-Eyed-Sky/loopra
