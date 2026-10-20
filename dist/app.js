@@ -1,4 +1,5 @@
-import { LoopraAudio, LOOP_COUNT } from './audio.js?v=3';
+import { LoopraAudio, LOOP_COUNT } from './machine-audio.js?v=1';
+import { MODE_STEPS } from './machine.js';
 
 const storageKey = 'loopra.stage.setup.v1';
 let initialSeed = (Math.random() * 4294967296) >>> 0;
@@ -6,7 +7,7 @@ try {
   const saved = JSON.parse(localStorage.getItem(storageKey));
   if (Number.isInteger(saved?.seed) && saved.seed >= 0) initialSeed = saved.seed >>> 0;
 } catch { /* A new place is drawn. */ }
-const audio = new LoopraAudio({ seed: initialSeed, features: { stage: true, timbre: true, variation: true } });
+const audio = new LoopraAudio({ seed: initialSeed, features: { stage: true, timbre: true, variation: true }, machine: { enabled: true, instrument: 'sine' } });
 const $ = (id) => document.getElementById(id);
 const STAGE_SLIDERS = ['Amount', 'Walk', 'Size', 'Variation', 'Pad'];
 const catalogue = audio.getLoopState();
@@ -14,7 +15,7 @@ const keys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 const modes = ['aeolian', 'ionian', 'dorian', 'lydian', 'mixolydian', 'phrygian', 'pentatonic'];
 const ids = catalogue.map((loop) => loop.id);
 let selection = ids.slice(0, 16);
-let settings = { key: 'D', mode: 'aeolian', complexity: 45, volume: 50, stage: { amount: 100, walk: 40, size: 50, variation: 50, pad: 70, listening: 'headphones', timbre: 'rich' } };
+let settings = { key: 'D', mode: 'aeolian', complexity: 45, volume: 50, stage: { amount: 100, walk: 40, size: 50, variation: 50, pad: 50, listening: 'headphones', timbre: 'rich' }, machine: { enabled: true, instrument: 'sine', voices: 10, level: 50, salt: 0 } };
 // The harmonic pad is the foundation: it has a level of its own, and every other layer is simply on or off.
 const levelOf = (id, index) => (selection.includes(id) ? (index === 0 ? settings.stage.pad / 100 : 1) : 0);
 let toastTimer, saveTimer;
@@ -40,6 +41,7 @@ function setupSnapshot() {
   return {
     format: 'loopra-setup', version: 1,
     ...settings,
+    machine: { ...settings.machine },
     seed: audio.seed,
     enabled: [...selection],
     durations: audio.getLoopState().map((loop) => loop.duration),
@@ -59,6 +61,13 @@ const validStage = (stage) => stage && typeof stage === 'object'
   && (stage.listening === undefined || ['headphones', 'speakers'].includes(stage.listening))
   && (stage.timbre === undefined || ['rich', 'classic'].includes(stage.timbre));
 
+const validMachine = (m) => m && typeof m === 'object'
+  && (m.enabled === undefined || typeof m.enabled === 'boolean')
+  && (m.instrument === undefined || ['sine', 'epiano', 'piano'].includes(m.instrument))
+  && (m.voices === undefined || (Number.isInteger(m.voices) && m.voices >= 2 && m.voices <= 12))
+  && (m.level === undefined || (Number.isFinite(m.level) && m.level >= 0 && m.level <= 100))
+  && (m.salt === undefined || (Number.isInteger(m.salt) && m.salt >= 0 && m.salt <= 1000000));
+
 function validateSetup(value) {
   if (!value || value.format !== 'loopra-setup' || value.version !== 1
     || !keys.includes(value.key) || !modes.includes(value.mode)
@@ -70,6 +79,7 @@ function validateSetup(value) {
     || !Array.isArray(value.durations) || value.durations.length !== LOOP_COUNT
     || value.durations.some((duration) => !Number.isFinite(duration) || duration < 1 || duration > 600)
     || (value.stage !== undefined && !validStage(value.stage))
+    || (value.machine !== undefined && !validMachine(value.machine))
     || (value.seed !== undefined && !(Number.isInteger(value.seed) && value.seed >= 0 && value.seed <= 4294967295))) {
     throw new Error('This is not a valid Loopra setup. Choose a file saved by Loopra.');
   }
@@ -78,9 +88,10 @@ function validateSetup(value) {
 
 function applySetup(value) {
   audio.setSoloLoop(null);
-  settings = { key: value.key, mode: value.mode, complexity: value.complexity, volume: value.volume, stage: { ...settings.stage, ...(value.stage || {}) } };
+  settings = { key: value.key, mode: value.mode, complexity: value.complexity, volume: value.volume, stage: { ...settings.stage, ...(value.stage || {}) }, machine: { ...settings.machine, ...(value.machine || {}) } };
   if (Number.isInteger(value.seed)) audio.setSeed(value.seed);
   applyStage();
+  applyMachine();
   selection = [...value.enabled];
   audio.setKey(settings.key);
   audio.setMusicalMode(settings.mode);
@@ -97,6 +108,7 @@ try {
 audio.setHarmonyComplexity(settings.complexity / 100);
 audio.setVolume(settings.volume * 0.0064);
 applyStage();
+applyMachine();
 
 const cards = catalogue.map((loop, index) => {
   const card = document.createElement('div');
@@ -157,6 +169,7 @@ function render() {
   $('stageListening').value = settings.stage.listening;
   $('stageTimbre').value = settings.stage.timbre;
   $('stageReadout').textContent = settings.stage.amount === 0 ? 'FLAT' : 'STAGED';
+  renderMelody();
   $('keyReadout').textContent = `${settings.key} ${settings.mode === 'aeolian' ? 'MINOR' : settings.mode === 'ionian' ? 'MAJOR' : settings.mode.toUpperCase()}`;
   document.querySelectorAll('input[type="range"]').forEach(paintRange);
   const soloIndex = audio.soloLoopIndex;
@@ -268,6 +281,34 @@ for (const name of STAGE_SLIDERS) {
 }
 $('stageListening').addEventListener('change', (event) => { settings.stage.listening = event.target.value; applyStage(); render(); persist(); });
 $('stageTimbre').addEventListener('change', (event) => { settings.stage.timbre = event.target.value; applyStage(); render(); persist(); });
+
+// The melody machine: single notes from the chord of the place, each on its own interval (Friday Afternoon).
+function applyMachine() {
+  const m = settings.machine;
+  audio.setMachine({ enabled: m.enabled, instrument: m.instrument, voices: m.voices, level: m.level / 100 * 5, salt: m.salt });
+}
+function renderMelody() {
+  const m = settings.machine;
+  $('melodySection').dataset.off = String(!m.enabled);
+  $('melodySwitch').setAttribute('aria-checked', String(m.enabled));
+  $('melodySwitch').textContent = m.enabled ? 'ON' : 'OFF';
+  $('melodySound').value = m.instrument;
+  $('melodyVoices').value = m.voices; $('melodyVoicesValue').value = m.voices;
+  $('melodyLevel').value = m.level; $('melodyLevelValue').value = m.level;
+  const names = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+  const scale = MODE_STEPS[settings.mode] || MODE_STEPS.aeolian;
+  const note = (degree) => names[(keys.indexOf(settings.key) + scale[degree]) % 12];
+  const unique = (list) => [...new Set(list)];
+  $('melodyNote').textContent = `The chord of this place: ${unique([note(0), note(2), note(4)]).join(' · ')} always; ${unique([note(6), note(1), note(3), note(5)]).filter((n) => ![note(0), note(2), note(4)].includes(n)).join(' · ')} as Harmonic complexity rises.`;
+}
+$('melodySwitch').addEventListener('click', () => { settings.machine.enabled = !settings.machine.enabled; applyMachine(); render(); persist(); });
+$('melodySound').addEventListener('change', (event) => { settings.machine.instrument = event.target.value; applyMachine(); render(); persist(); });
+$('melodyVoices').addEventListener('input', (event) => { settings.machine.voices = Number(event.target.value); applyMachine(); render(); persist(); });
+$('melodyLevel').addEventListener('input', (event) => { settings.machine.level = Number(event.target.value); applyMachine(); render(); persist(); });
+$('melodyDice').addEventListener('click', () => {
+  settings.machine.salt += 1; applyMachine(); render(); persist();
+  notify('New intervals. The notes stay in the chord of this place.');
+});
 
 $('returnToMix').addEventListener('click', () => { audio.setSoloLoop(null); render(); });
 
