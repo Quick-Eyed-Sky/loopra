@@ -2,7 +2,7 @@
 
 **A small ambient instrument for your browser. Choose among 32 sound layers, each repeating at its own length, in one shared key and mode.**
 
-**[⬇️ Download the latest release →](https://github.com/Quick-Eyed-Sky/loopra/releases/latest)** · [First opening on a Mac →](docs/first-opening.md)
+**[▶ Play in your browser →](https://quick-eyed-sky.github.io/loopra/)** · **[⬇️ Download the latest release →](https://github.com/Quick-Eyed-Sky/loopra/releases/latest)** · [First opening on a Mac →](docs/first-opening.md)
 
 Pads and bowed bass make a soft foundation. Glass, felt piano, little ripples, distant calls and long chords find their way through it. Leave a few layers together, or listen to one on its own.
 
